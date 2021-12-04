@@ -1,0 +1,75 @@
+#include <msp430.h>
+unsigned int *PTXData = 0;
+unsigned int TXByteCtr = 0;
+unsigned int TXData[]= {0x0000, 0x00FA, 0x01F4, 0x02EE,0x0E38}; //250,500,750,3640
+int Receive = 0;
+int StartEnable = 0,cntr = 0;
+unsigned int High = 0, Low = 0;
+unsigned int TXByteCtr;
+int data = 0;
+void i2c_init(void);
+void main(void)
+{
+    WDTCTL = WDTPW | WDTHOLD;   // stop watchdog timer
+    P1DIR |= BIT5;
+    P1IE |= 0x08;
+    P1IES = 0x08;
+    P1IFG = 0x00;
+    P1SEL = BIT6|BIT7;
+    P1SEL2 = BIT6|BIT7;
+    i2c_init();
+    _enable_interrupts();
+    while(1){
+        TXByteCtr = 2;
+       while(UCB0CTL1 & UCTXSTP);
+       if(StartEnable ==1)
+       {UCB0CTL1 |=UCTR|UCTXSTT;
+       LPM0;
+       }
+    }
+}
+#pragma vector = PORT1_VECTOR       //define the interrupt service vector
+__interrupt void PORT1_ISR(void)    // interrupt service routine
+    {
+      StartEnable = 1;
+       P1IFG    = 0x00;
+        }
+#pragma vector = USCIAB0TX_VECTOR
+__interrupt void USCIA0TX_ISR(void){
+    if (TXByteCtr){
+        if ((TXByteCtr%2)==0)
+        {
+            High = *PTXData;
+            UCA0TXBUF =  (High>>8);
+        }
+        else if ((TXByteCtr%2)==1){
+            Low = *PTXData++;
+            UCA0TXBUF = Low;
+            cntr++;
+        }
+        TXByteCtr--;
+        }
+    else {
+        if (cntr ==5){
+            PTXData = PTXData-5;
+            cntr=0;
+        }
+        StartEnable = 0;
+        UCB0CTL1 |= UCTXSTP;
+        IFG2 &= ~UCB0TXIFG;
+        LPM0_EXIT;
+    }
+}
+void i2c_init(void){
+    UCB0CTL1 |= UCSWRST| UCSSEL_2;
+    UCB0CTL0 |=  UCMST | UCMODE_3| UCSYNC; //UCMST-this device is a master
+    UCB0BR1 = 0; //high byte
+    UCB0BR0 = 12;  //low byte
+    UCB0I2CSA = 0x48; //01001000 //BIT3,BIT6
+                   //Second modulation select stage is 1
+    UCB0CTL1 &= ~UCSWRST;                    //clear software reset, resume operaion
+    PTXData = TXData;
+    IE2 |= UCB0TXIE;
+    P1OUT &= ~BIT5;
+    P1OUT |= BIT5;
+}
